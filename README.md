@@ -97,6 +97,6 @@ python -m unittest discover -s tests
 
 Claude Code only inlines `@` imports of `.md` files. An imported `.mdc` is listed but its content never reaches the model, so always-on `.mdc` rules are copied into `.claude/rules/`. `--check` catches the copy going stale.
 
-Pairs with `cursor-starter-rules`, the companion repo of template rules to put in `.cursor/rules/`.
+Pairs with [pacing-ai-starter](https://github.com/Pacing-Agency/pacing-ai-starter), which carries this generator plus template rules for `.cursor/rules/` and a secret-guard pre-commit hook.
 
 MIT licence. From [Pacing Agency](https://pacing.agency).
