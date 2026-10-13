@@ -1,8 +1,47 @@
+<p align="center">
+  <img src="docs/banner.svg" alt="Pacing: cursor-claude-parity. One rule set for Cursor and Claude Code." width="100%">
+</p>
+
 # cursor-claude-parity
 
-Keep one rule set. Use it in both Cursor and Claude Code.
+Write your agent rules, agents, skills, MCP servers and hooks once under `.cursor/`, and generate the Claude Code side from them with one standard-library Python script.
 
-You write your rules, agents, skills, MCP servers and hooks once, under `.cursor/`. This script generates the Claude Code side from them:
+[![Tests](https://github.com/Pacing-Agency/cursor-claude-parity/actions/workflows/tests.yml/badge.svg)](https://github.com/Pacing-Agency/cursor-claude-parity/actions/workflows/tests.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-orange.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](cursor_claude_parity.py)
+
+## Who it's for
+
+Teams and solo developers who use Cursor and Claude Code on the same repo and are tired of keeping two sets of instructions in step.
+
+## What problem it solves
+
+- **Rules drift.** Edit a rule in `.cursor/rules/` and forget `CLAUDE.md`, and the two tools now follow different guardrails.
+- **Claude Code does not read `.mdc` imports.** It only inlines `@` imports of `.md` files, so an always-on Cursor rule is silently missing unless it is copied. The script copies it and `--check` catches stale copies.
+- **MCP and hook config differ in small ways.** `${env:VAR}` against `${VAR}`, event names, model slugs. The script converts them so you do not hand-edit JSON.
+
+## Quick start
+
+```bash
+git clone https://github.com/Pacing-Agency/cursor-claude-parity.git
+cp cursor-claude-parity/cursor_claude_parity.py /path/to/your-repo/
+cd /path/to/your-repo
+
+python cursor_claude_parity.py .            # generate the Claude Code files
+python cursor_claude_parity.py . --check    # drift check, exit 1 on drift
+```
+
+Try it on the bundled example first:
+
+```bash
+cp -r cursor-claude-parity/examples/tiny-repo /tmp/demo
+python cursor-claude-parity/cursor_claude_parity.py /tmp/demo
+```
+
+Run `--check` in CI or a pre-commit hook to stop the two sides drifting.
+
+## How it works
 
 | Source | Generated |
 |---|---|
@@ -12,28 +51,38 @@ You write your rules, agents, skills, MCP servers and hooks once, under `.cursor
 | `.cursor/skills/*/SKILL.md` | `.claude/skills/*/SKILL.md` (pointers) |
 | `.cursor/hooks.json` | `.claude/settings.json` (event names converted) |
 
-Everything it writes carries a marker comment. It never overwrites a hand-written file, and it only touches the block between the `claude-parity` markers in `CLAUDE.md`, so your own prose stays.
-
-`--check` reports drift without writing anything and exits 1 if the generated files are out of date. Run it in CI or a pre-commit hook.
-
-It uses only the Python standard library (3.9 or later) and never reads `.env`.
-
-## Install
-
-Copy `cursor_claude_parity.py` into your repo (or anywhere on your machine). No packages to install.
-
-## Use
-
-```bash
-python cursor_claude_parity.py .            # generate
-python cursor_claude_parity.py . --check    # drift check, exit 1 on drift
-```
+Everything it writes carries a marker comment. It never overwrites a hand-written file, and it only touches the block between the `claude-parity` markers in `CLAUDE.md`, so your own prose stays. It never reads `.env`.
 
 Exit codes: 0 fine, 1 drift or a conflict with a hand-written file, 2 bad arguments, 3 no rules found (pass `--allow-no-rules` to override).
 
+### Example
+
+Before, `.cursor/mcp.json`:
+
+```json
+"docs": { "url": "https://mcp.example.com/mcp",
+          "headers": { "Authorization": "Bearer ${env:DOCS_TOKEN}" } }
+```
+
+After, `.mcp.json`:
+
+```json
+"docs": { "url": "https://mcp.example.com/mcp",
+          "headers": { "Authorization": "Bearer ${DOCS_TOKEN}" },
+          "type": "http" }
+```
+
+Before, `.cursor/agents/reviewer.md` has `model: claude-sonnet-4` and a description ending "Use proactively after a PR is opened." After, `.claude/agents/reviewer.md` has the model slug gone, a lane note leading the description, and a body that points back to the Cursor file:
+
+```
+Canonical instructions: `.cursor/agents/reviewer.md`. Read that file and follow it completely.
+```
+
+The always-on rule becomes `.claude/rules/house-style.md`. The glob rule becomes a path-scoped pointer that Claude Code loads when it touches matching files. `CLAUDE.md` lists the always-on rules and adds a "read when" table for rules that have a description but neither `alwaysApply` nor globs.
+
 ### Options
 
-Everything is optional. Put them in `.cursor-claude-parity.json` at the repo root, or pass `--config FILE`, or use flags.
+All optional. Put them in `.cursor-claude-parity.json` at the repo root, pass `--config FILE`, or use flags.
 
 | Config key | Flag | What it does |
 |---|---|---|
@@ -50,53 +99,30 @@ Everything is optional. Put them in `.cursor-claude-parity.json` at the repo roo
 
 Cursor hook events are converted to Claude Code names: `sessionStart` to `SessionStart`, `sessionEnd` to `SessionEnd`, `preToolUse` to `PreToolUse`, `postToolUse` to `PostToolUse`, `beforeSubmitPrompt` to `UserPromptSubmit`. Any other event is not ported, and the script prints a `note:` line naming it. If `.claude/settings.json` already exists and was not generated by this script, hooks are not ported at all and a note says so.
 
-### What does not transfer
+## Limits
 
-Cursor marketplace plugins, canvases, Cursor OAuth sessions (remote MCP servers need re-authorising in Claude Code with `/mcp`), and Cursor model slugs in agent files (only `sonnet`, `opus`, `haiku` and `inherit` are kept). The generated block in `CLAUDE.md` says the same.
+- **One-way.** It generates Claude Code files from `.cursor/`. It does not read Claude Code config back into Cursor.
+- **Not on PyPI.** There is no pip package: copy the single file into your repo or onto your path.
+- **Some things do not transfer:** Cursor marketplace plugins, canvases, and Cursor OAuth sessions (remote MCP servers need re-authorising in Claude Code with `/mcp`). Cursor model slugs in agent files are dropped, and only `sonnet`, `opus`, `haiku` and `inherit` are kept.
+- **Hooks are partial.** Only the five events above are converted.
+- **Conventions can change.** Claude Code's file formats are not ours. Run `--check` after upgrading either tool.
 
-## Example
-
-`examples/tiny-repo/` is a made-up repo with `.cursor/` only. Run:
-
-```bash
-cp -r examples/tiny-repo /tmp/demo && python cursor_claude_parity.py /tmp/demo
-```
-
-Before (`.cursor/mcp.json`):
-
-```json
-"docs": { "url": "https://mcp.example.com/mcp",
-          "headers": { "Authorization": "Bearer ${env:DOCS_TOKEN}" } }
-```
-
-After (`.mcp.json`):
-
-```json
-"docs": { "url": "https://mcp.example.com/mcp",
-          "headers": { "Authorization": "Bearer ${DOCS_TOKEN}" },
-          "type": "http" }
-```
-
-Before (`.cursor/agents/reviewer.md`, frontmatter): `model: claude-sonnet-4`, description ending "Use proactively after a PR is opened."
-
-After (`.claude/agents/reviewer.md`): the model slug is gone, the lane note leads the description, and the body is a pointer:
-
-```
-Canonical instructions: `.cursor/agents/reviewer.md`. Read that file and follow it completely.
-```
-
-The always-on rule becomes `.claude/rules/house-style.md` and the glob rule becomes a path-scoped pointer (`.claude/rules/api-conventions.md`, loaded when Claude Code touches matching files). `CLAUDE.md` lists the always-on rules and adds a "read when" table for rules that have a description but neither `alwaysApply` nor globs. Glob rules are not listed in `CLAUDE.md`.
-
-## Test
+## Tests
 
 ```bash
 python -m unittest discover -s tests
 ```
 
-## Why copies for `.mdc` rules
-
-Claude Code only inlines `@` imports of `.md` files. An imported `.mdc` is listed but its content never reaches the model, so always-on `.mdc` rules are copied into `.claude/rules/`. `--check` catches the copy going stale.
-
 Pairs with [pacing-ai-starter](https://github.com/Pacing-Agency/pacing-ai-starter), which carries this generator plus template rules for `.cursor/rules/` and a secret-guard pre-commit hook.
 
-MIT licence. From [Pacing Agency](https://pacing.agency).
+## Contributing
+
+Issues and pull requests are welcome. Keep it standard library only, add a test for any behaviour change, and make sure `python -m unittest discover -s tests` passes.
+
+## Licence
+
+[MIT](LICENSE).
+
+---
+
+Built by [Pacing](https://pacing.agency), a London marketing and build agency. MIT. More on this project: [pacing.agency/built/cursor-claude-parity](https://pacing.agency/built/cursor-claude-parity).
